@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <title>WindowClient focus test</title>
+  </head>
+  <body>
+    <h1>
+      WindowClient focus test
+    </h1>
+
+    <label>
+      <input type="checkbox" disabled id="havePermission" />
+      Have notification permissions
+    </label>
+    <button type="button" id="requestPermission">Request permission</button>
+
+    <form name="sendMessage" onsubmit="return false">
+      <fieldset>
+        <legend>Send a message</legend>
+        <label for="delay">
+          Delay in ms:
+          <input type="number" id="delay" placeholder="3000" />
+        </label>
+        <button type="submit">Queue message</button>
+      </fieldset>
+    </form>
+
+    <script>
+      havePermission.checked = Notification.permission === "granted";
+
+      requestPermission.onclick = () =>
+        Notification.requestPermission().then(
+          (p) => (havePermission.checked = p === "granted")
+        );
+
+      document.forms.sendMessage.onsubmit = (e) => {
+        e.preventDefault();
+        Promise.all([
+          navigator.serviceWorker
+            .register("sw.js")
+            .then((registration) =>
+              registration.pushManager
+                .getSubscription()
+                .then(
+                  (subscription) => (subscription?.unsubscribe(), registration)
+                )
+            ),
+          fetch("/key").then((resp) => resp.text()),
+        ])
+          .then(([registration, key]) => {
+            const padding = "=".repeat((4 - (key.length % 4)) % 4);
+            const base64 = (key + padding)
+              .replace(/\-/g, "+")
+              .replace(/_/g, "/");
+
+            const rawData = window.atob(base64);
+            const outputArray = new Uint8Array(rawData.length);
+
+            for (let i = 0; i < rawData.length; i += 1) {
+              outputArray[i] = rawData.charCodeAt(i);
+            }
+
+            return registration.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: outputArray,
+            });
+          })
+          .then((subscription) =>
+            fetch("./sendNotification", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                subscription,
+                delay: Number.parseInt(delay.value || "0"),
+              }),
+            })
+          );
+      };
+    </script>
+  </body>
+</html>
